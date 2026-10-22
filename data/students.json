@@ -1,0 +1,20 @@
+[
+  {
+    "id": "amara-okafor",
+    "name": "Amara Okafor",
+    "story": "Second-year nursing student bridging a tuition gap after a family emergency.",
+    "goalStroops": "25000000000"
+  },
+  {
+    "id": "diego-ramirez",
+    "name": "Diego Ramirez",
+    "story": "Engineering student working to cover housing and materials for this term.",
+    "goalStroops": "40000000000"
+  },
+  {
+    "id": "mei-lin",
+    "name": "Mei Lin",
+    "story": "First-generation computer science student closing a financial aid shortfall.",
+    "goalStroops": "30000000000"
+  }
+]

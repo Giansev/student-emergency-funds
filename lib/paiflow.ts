@@ -1,7 +1,11 @@
 import "server-only";
 import { Paiflow } from "@paiflow/sdk";
 import { StrKey } from "@stellar/stellar-sdk";
-import { AMOUNT, TESTNET } from "@/lib/types";
+import {
+  MAX_DONATION_STROOPS,
+  MIN_DONATION_STROOPS,
+  TESTNET,
+} from "@/lib/types";
 import type { PublicConfig, Prepared } from "@/lib/types";
 import { envelopeHash } from "@/lib/transaction";
 export function configuration() {
@@ -72,11 +76,23 @@ export async function paymentReady() {
     );
   return d;
 }
-export async function preparePayment(from: string): Promise<Prepared> {
+export async function preparePayment(
+  from: string,
+  amountStroops: string,
+): Promise<Prepared> {
   if (!StrKey.isValidEd25519PublicKey(from))
     throw new Error("Supply a public Stellar account.");
+  if (
+    !/^\d+$/.test(amountStroops) ||
+    amountStroops.length > 39 ||
+    BigInt(amountStroops) < BigInt(MIN_DONATION_STROOPS) ||
+    BigInt(amountStroops) > BigInt(MAX_DONATION_STROOPS)
+  )
+    throw new Error(
+      `Donation must be between ${MIN_DONATION_STROOPS} and ${MAX_DONATION_STROOPS} stroops.`,
+    );
   const d = await paymentReady();
-  const response = await d.execute.prepare({ from, amount: AMOUNT });
+  const response = await d.execute.prepare({ from, amount: amountStroops });
   const p = response.data;
   if (p.network !== "testnet" || p.networkPassphrase !== TESTNET)
     throw new Error("Only Testnet is allowed.");

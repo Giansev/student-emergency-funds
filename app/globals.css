@@ -61,6 +61,24 @@ input {
   border-radius: 4px;
   font: inherit;
 }
+textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  color: inherit;
+  background: #1c202c;
+  border: 1px solid #8792ad;
+  border-radius: 4px;
+  font: inherit;
+}
+fieldset.editor {
+  border: 1px solid #677086;
+  border-radius: 8px;
+  margin: 16px 0;
+  padding: 16px;
+}
 button {
   padding: 10px 16px;
   margin: 4px 0;
@@ -81,6 +99,39 @@ button:disabled {
 }
 summary {
   cursor: pointer;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.card {
+  text-align: left;
+  background: #1c202c;
+  color: inherit;
+  border: 1px solid #8792ad;
+  border-radius: 8px;
+}
+.card.selected {
+  border-color: #e5bfff;
+  background: #292344;
+}
+.card span {
+  display: block;
+  margin-top: 8px;
+}
+.muted {
+  color: #aab1c5;
+}
+.session {
+  font-size: 0.9rem;
+}
+button.link {
+  background: none;
+  color: #bfc9ff;
+  text-decoration: underline;
+  padding: 0 4px;
+  margin: 0;
 }
 .address,
 pre {

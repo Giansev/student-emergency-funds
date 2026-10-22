@@ -1,6 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { PublicConfig, Prepared, Result } from "@/lib/types";
+import { useRouter } from "next/navigation";
+import type { PublicConfig, Prepared, Result, Student } from "@/lib/types";
+import {
+  MAX_DONATION_STROOPS,
+  MIN_DONATION_STROOPS,
+  STUDENT_SHARE_BPS,
+  TOTAL_SHARE_BPS,
+} from "@/lib/types";
+import { fromStroops, toStroops } from "@/lib/amount";
+import { ORGANIZATION } from "@/lib/students";
 import {
   BrowserRequestError,
   browserRequest,
@@ -29,14 +38,48 @@ type Operation = {
   message: (message: string) => void;
 };
 
-export function StarterApp({ config }: { config: PublicConfig }) {
+export function StarterApp({
+  config,
+  students,
+  username,
+}: {
+  config: PublicConfig;
+  students: Student[];
+  username: string;
+}) {
+  const router = useRouter();
   const [address, setAddress] = useState("");
+  const [selected, setSelected] = useState("");
+  const [amount, setAmount] = useState("");
   const [record, setRecord] = useState<Recovery | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState("");
   const [blocked, setBlocked] = useState(true);
   const key = config.ready ? `paiflow-sdk-payment-v2:${config.scope}` : "";
+  let stroops = "";
+  let amountError = "";
+  try {
+    if (amount) {
+      stroops = toStroops(amount);
+      const value = BigInt(stroops);
+      if (value < BigInt(MIN_DONATION_STROOPS))
+        amountError = `Minimum donation is ${fromStroops(MIN_DONATION_STROOPS)} XLM.`;
+      else if (value > BigInt(MAX_DONATION_STROOPS))
+        amountError = `Maximum donation is ${fromStroops(MAX_DONATION_STROOPS)} XLM.`;
+    }
+  } catch (error) {
+    amountError =
+      error instanceof Error ? error.message : "Enter a valid amount.";
+    stroops = "";
+  }
+  const studentShare = stroops
+    ? ((BigInt(stroops) * STUDENT_SHARE_BPS) / TOTAL_SHARE_BPS).toString()
+    : "";
+  const orgShare = stroops
+    ? (BigInt(stroops) - BigInt(studentShare)).toString()
+    : "";
+  const student = students.find((s) => s.id === selected);
   const scopeKey = useRef(key);
   scopeKey.current = key;
   const loadedKey = useRef<string | null>(null);
@@ -141,9 +184,15 @@ export function StarterApp({ config }: { config: PublicConfig }) {
     }
   }
 
-  function statusMessage(result: Result) {
+  function statusMessage(result: Result, current?: Recovery | null) {
+    const championed = current?.studentId
+      ? students.find((s) => s.id === current.studentId)
+      : undefined;
+    const thanks = championed
+      ? ` Thank you for supporting ${championed.name}.`
+      : "";
     if (result.status === "SUCCESS")
-      return "Original transaction confirmed. This does not verify downstream payouts or fulfil an application order.";
+      return `Original transaction confirmed.${thanks} This does not verify the deployed split's payouts or fulfil a donation.`;
     if (result.status === "FAILED")
       return "Original transaction failed on the network. Its evidence is retained until acknowledged.";
     return `Original transaction: ${result.status}. UNKNOWN, rejection, expiry or missing history never prove replacement is safe.`;
@@ -170,7 +219,7 @@ export function StarterApp({ config }: { config: PublicConfig }) {
           result.status === "FAILED" ||
           result.status === "REJECTED"
         )
-          op.message(statusMessage(result));
+          op.message(statusMessage(result, current));
       },
     });
     if (outcome === "unresolved") op.message(CONFIRMATION_UNRESOLVED);
@@ -197,13 +246,22 @@ export function StarterApp({ config }: { config: PublicConfig }) {
     if (current)
       throw new Error("Resolve the existing payment before preparing another.");
     if (!address) throw new Error("Connect Freighter first.");
+    if (!student) throw new Error("Choose a student to support first.");
+    if (!stroops || amountError)
+      throw new Error(amountError || "Enter a valid donation amount.");
     const prepared = await browserRequest<Prepared>(
       "/api/pay",
-      { action: "prepare", from: address },
+      { action: "prepare", from: address, amount },
       op.signal,
     );
     if (!config.ready) return;
-    op.save({ version: 2, scope: config.scope, address, prepared });
+    op.save({
+      version: 2,
+      scope: config.scope,
+      address,
+      prepared,
+      studentId: student.id,
+    });
     op.message(
       "Prepared and saved. Review the wallet transaction before approving.",
     );
@@ -257,7 +315,7 @@ export function StarterApp({ config }: { config: PublicConfig }) {
       throw new Error("Response hash mismatch. Keep the original record.");
     if (result.status === "REJECTED") {
       op.save({ ...next, status: "REJECTED" });
-      op.message(statusMessage(result));
+      op.message(statusMessage(result, next));
       return;
     }
     // Confirmation uses the original status route even when submission reports success.
@@ -274,7 +332,7 @@ export function StarterApp({ config }: { config: PublicConfig }) {
     if (!op.valid()) return;
     assertStatus(result, current.prepared.txHash);
     op.save({ ...current, status: result.status });
-    op.message(statusMessage(result));
+    op.message(statusMessage(result, current));
   }
   async function clear(current: Recovery | null, op: Operation) {
     if (!current || !terminal(current))
@@ -287,21 +345,36 @@ export function StarterApp({ config }: { config: PublicConfig }) {
       throw new Error("Could not clear stored evidence.");
     setRecord(null);
     op.message(
-      "Final transaction acknowledged. A new demo payment is now possible.",
+      "Final transaction acknowledged. A new donation is now possible.",
     );
   }
   return (
     <main>
       <header>
-        <h1>Paiflow SDK payment starter</h1>
+        <h1>ScholarFund — student donations</h1>
         <span className="chip" data-testid="network-chip">
           TESTNET
         </span>
+        <span className="session">
+          Signed in as {username}{" "}
+          <button
+            type="button"
+            className="link"
+            onClick={() =>
+              void browserRequest("/api/session", { action: "logout" })
+                .catch(() => undefined)
+                .finally(() => router.refresh())
+            }
+          >
+            Log out
+          </button>
+        </span>
       </header>
       <p>
-        A minimal 1 XLM payment demo using the server-side Paiflow SDK and
-        Freighter. Use your own native-XLM Receive deployment. No goods or
-        orders are fulfilled by this example.
+        Donate testnet XLM to support students in need. Every donation is split
+        by the deployed Paiflow flow: 90% to the student and 10% to the{" "}
+        {ORGANIZATION.name}. Freighter signs in your browser; this app never
+        handles private keys.
       </p>
       {!config.ready ? (
         <aside>{config.message}</aside>
@@ -313,7 +386,31 @@ export function StarterApp({ config }: { config: PublicConfig }) {
         </p>
       )}
       <section>
-        <h2>1. Connect and prepare</h2>
+        <h2>1. Choose a student</h2>
+        <p className="muted">
+          Your choice is recorded with the donation and shown in the thank-you
+          message. On-chain routing always follows the recipients configured in
+          the deployed flow.
+        </p>
+        <div className="cards">
+          {students.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              aria-pressed={selected === s.id}
+              className={`card${selected === s.id ? " selected" : ""}`}
+              onClick={() => setSelected(s.id)}
+            >
+              <strong>{s.name}</strong>
+              <span>{s.story}</span>
+              <span>Goal: {fromStroops(s.goalStroops)} XLM</span>
+            </button>
+          ))}
+        </div>
+        {student && <p>Supporting: {student.name}</p>}
+      </section>
+      <section>
+        <h2>2. Connect and prepare</h2>
         <button
           disabled={busy || !config.ready || blocked}
           onClick={() =>
@@ -327,19 +424,45 @@ export function StarterApp({ config }: { config: PublicConfig }) {
           Connect Freighter
         </button>
         <p>Wallet: {address || "Not connected"}</p>
-        <p>
-          Payment: 1 testnet XLM plus network fees. Review the full transaction
-          in Freighter.
-        </p>
+        <label>
+          Donation amount (XLM)
+          <input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="5.00"
+            inputMode="decimal"
+            disabled={busy || !!record}
+          />
+        </label>
+        {amountError ? (
+          <p role="alert">{amountError}</p>
+        ) : (
+          stroops && (
+            <p>
+              Split preview: {fromStroops(studentShare)} XLM to the student and{" "}
+              {fromStroops(orgShare)} XLM ({Number(ORGANIZATION.shareBps) / 100}
+              %) to the {ORGANIZATION.name}. The deployed flow is authoritative
+              for rounding.
+            </p>
+          )
+        )}
         <button
-          disabled={busy || blocked || !address || !!record}
+          disabled={
+            busy ||
+            blocked ||
+            !address ||
+            !!record ||
+            !student ||
+            !stroops ||
+            !!amountError
+          }
           onClick={() => run(prepare)}
         >
-          Prepare 1 XLM payment
+          Prepare donation
         </button>
       </section>
       <section>
-        <h2>2. Sign and submit</h2>
+        <h2>3. Sign and submit</h2>
         <button
           disabled={
             busy || !record || !!record.signedXdr || terminal(record) || blocked
@@ -363,7 +486,7 @@ export function StarterApp({ config }: { config: PublicConfig }) {
         </button>
       </section>
       <section>
-        <h2>3. Verify and recover</h2>
+        <h2>4. Verify and recover</h2>
         <p>
           Reloading restores the original preparation and signed envelope. Keep
           this browser's storage until the original transaction is resolved.
@@ -410,11 +533,12 @@ export function StarterApp({ config }: { config: PublicConfig }) {
         </button>
       )}
       <aside>
-        This local demo has no app authentication, order database, rate limit or
-        business verification. Do not deploy it as a production checkout. A
-        production application must bind prepared transactions to authorised
-        orders and keep durable server-side recovery evidence. Browser storage
-        is not a backup; deleting it loses recovery.
+        This local demo has no donor authentication, donation database, rate
+        limit or student identity verification. Do not deploy it as a
+        production fundraiser. A production application must bind prepared
+        transactions to authorised donations and keep durable server-side
+        recovery evidence. Browser storage is not a backup; deleting it loses
+        recovery.
       </aside>
     </main>
   );

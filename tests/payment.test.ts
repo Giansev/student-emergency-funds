@@ -26,6 +26,7 @@ import {
   paymentReady,
 } from "@/lib/paiflow";
 import { sameOrigin } from "@/lib/http";
+import { issueSession, SESSION_COOKIE } from "@/lib/session";
 vi.mock("server-only", () => ({}));
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -55,6 +56,8 @@ vi.mock("@paiflow/sdk", async (importOriginal) => {
 const id = "12345678-1234-1234-1234-123456789abc";
 const hash = envelopeHash(fixturePrepared.xdr);
 const prepared = { ...fixturePrepared, txHash: hash };
+const sessionCookie = () =>
+  `${SESSION_COOKIE}=${issueSession("tester")}`;
 const record: Recovery = {
   version: 2,
   scope: "https://beta.app.paiflow.xyz/" + id,
@@ -92,13 +95,13 @@ it("accepts either token family while public config never contains credentials",
   vi.stubEnv("PAIFLOW_API_TOKEN", "not-a-token");
   expect(publicConfig().ready).toBe(false);
 });
-it("uses SDK preparation metadata and fixed 1 XLM, then submits once without waiting", async () => {
-  const p = await preparePayment(fixtureAddress);
+it("uses SDK preparation metadata and the requested stroop amount, then submits once without waiting", async () => {
+  const p = await preparePayment(fixtureAddress, "25000000");
   expect(p.txHash).toBe(hash);
   expect(p.preparationRequestId).toBe("preparation-evidence");
   expect(mocks.prepare).toHaveBeenCalledWith({
     from: fixtureAddress,
-    amount: "10000000",
+    amount: "25000000",
   });
   await submitPayment(p.xdr, p.preparationRequestId);
   expect(mocks.submit).toHaveBeenCalledExactlyOnceWith(
@@ -108,6 +111,36 @@ it("uses SDK preparation metadata and fixed 1 XLM, then submits once without wai
   expect(mocks.constructor).toHaveBeenCalledWith({
     baseUrl: "https://beta.app.paiflow.xyz",
     token: "pfd_" + "a".repeat(64),
+  });
+});
+it("refuses donations outside the allowed stroop range", async () => {
+  for (const amount of ["0", "999999", "10000000000001", "1.5", "abc"]) {
+    await expect(preparePayment(fixtureAddress, amount)).rejects.toThrow(
+      "Donation must be between",
+    );
+  }
+  expect(mocks.prepare).not.toHaveBeenCalled();
+});
+it("route converts the decimal donation to stroops before preparing", async () => {
+  const response = await POST(
+    new Request("https://starter.example/api/pay", {
+      method: "POST",
+      headers: {
+        origin: "https://starter.example",
+        "content-type": "application/json",
+        cookie: sessionCookie(),
+      },
+      body: JSON.stringify({
+        action: "prepare",
+        from: fixtureAddress,
+        amount: "2.5",
+      }),
+    }),
+  );
+  expect(response.ok).toBe(true);
+  expect(mocks.prepare).toHaveBeenCalledWith({
+    from: fixtureAddress,
+    amount: "25000000",
   });
 });
 it.each(["mainnet", "USDC", "unsupported"])(
@@ -223,7 +256,20 @@ it("blocks legacy and other-scope recovery while retaining every stored record",
 it("route refuses unknown fields, bad origin, oversized and malformed requests before SDK mutation", async () => {
   for (const [body, origin] of [
     [
-      JSON.stringify({ action: "prepare", from: fixtureAddress, amount: "9" }),
+      JSON.stringify({
+        action: "prepare",
+        from: fixtureAddress,
+        amount: "9",
+        note: "extra field",
+      }),
+      "https://starter.example",
+    ],
+    [
+      JSON.stringify({
+        action: "prepare",
+        from: fixtureAddress,
+        amount: "1.00000001",
+      }),
       "https://starter.example",
     ],
     [
@@ -236,7 +282,11 @@ it("route refuses unknown fields, bad origin, oversized and malformed requests b
     const response = await POST(
       new Request("https://starter.example/api/pay", {
         method: "POST",
-        headers: { origin: origin!, "content-type": "application/json" },
+        headers: {
+          origin: origin!,
+          "content-type": "application/json",
+          cookie: sessionCookie(),
+        },
         body: body!,
       }),
     );
@@ -244,4 +294,19 @@ it("route refuses unknown fields, bad origin, oversized and malformed requests b
   }
   expect(mocks.prepare).not.toHaveBeenCalled();
   expect(mocks.submit).not.toHaveBeenCalled();
+});
+it("payment route refuses requests without a valid session cookie", async () => {
+  const response = await POST(
+    new Request("https://starter.example/api/pay", {
+      method: "POST",
+      headers: {
+        origin: "https://starter.example",
+        "content-type": "application/json",
+        cookie: `${SESSION_COOKIE}=tampered.value`,
+      },
+      body: JSON.stringify({ action: "status", txHash: hash }),
+    }),
+  );
+  expect(response.ok).toBe(false);
+  expect(mocks.status).not.toHaveBeenCalled();
 });

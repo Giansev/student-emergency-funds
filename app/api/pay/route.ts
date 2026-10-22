@@ -1,8 +1,11 @@
 import { preparePayment, submitPayment, paymentStatus } from "@/lib/paiflow";
+import { toStroops } from "@/lib/amount";
 import { handle, sameOrigin } from "@/lib/http";
+import { sessionUsername } from "@/lib/session";
 export async function POST(request: Request) {
   return handle(async () => {
     sameOrigin(request);
+    if (!sessionUsername(request)) throw new Error("Sign in required.");
     const text = await request.text();
     if (text.length > 210000) throw new Error("Request too large.");
     const b: unknown = JSON.parse(text);
@@ -12,9 +15,11 @@ export async function POST(request: Request) {
     if (
       v.action === "prepare" &&
       typeof v.from === "string" &&
-      Object.keys(v).length === 2
+      typeof v.amount === "string" &&
+      v.amount.length <= 48 &&
+      Object.keys(v).length === 3
     )
-      return preparePayment(v.from);
+      return preparePayment(v.from, toStroops(v.amount));
     if (
       v.action === "status" &&
       typeof v.txHash === "string" &&

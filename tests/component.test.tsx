@@ -8,6 +8,9 @@ vi.mock("@/lib/wallet", () => ({
   connectWallet: vi.fn(),
   signPrepared: vi.fn(),
 }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 const scope =
   "https://beta.app.paiflow.xyz/12345678-1234-1234-1234-123456789abc";
 const key = `paiflow-sdk-payment-v2:${scope}`;
@@ -18,6 +21,14 @@ const stored = {
   prepared: { ...fixturePrepared, txHash: envelopeHash(fixturePrepared.xdr) },
   signedXdr: fixturePrepared.xdr,
 };
+const students = [
+  {
+    id: "amara-okafor",
+    name: "Amara Okafor",
+    story: "Second-year nursing student bridging a tuition gap.",
+    goalStroops: "25000000000",
+  },
+];
 let renderer: ReactTestRenderer | undefined;
 let values: Map<string, string>;
 let lockAvailable = true;
@@ -81,7 +92,11 @@ afterEach(async () => {
 async function mount() {
   await act(() => {
     renderer = create(
-      <StarterApp config={{ ready: true, scope, deploymentUrl: scope }} />,
+      <StarterApp
+        config={{ ready: true, scope, deploymentUrl: scope }}
+        students={students}
+        username="tester"
+      />,
     );
   });
 }
@@ -89,6 +104,30 @@ function button(label: string) {
   return renderer!.root
     .findAllByType("button")
     .find((b) => b.children.join("") === label)!;
+}
+function card(name: string) {
+  return renderer!.root
+    .findAllByType("button")
+    .find((b) =>
+      b.children.some(
+        (c) =>
+          typeof c === "object" &&
+          c !== null &&
+          (c as { props?: { children?: unknown } }).props?.children === name,
+      ),
+    )!;
+}
+async function selectStudent(name: string) {
+  await act(async () => {
+    void card(name).props.onClick();
+  });
+}
+function enterAmount(value: string) {
+  act(() => {
+    renderer!.root.findByType("input").props.onChange({
+      target: { value },
+    });
+  });
 }
 function message() {
   return renderer!.root.findByProps({ role: "status" }).children.join("");
@@ -210,6 +249,8 @@ it("scope change aborts a pending lookup and prevents late writes or success UI 
           scope: scope + "-other",
           deploymentUrl: scope + "-other",
         }}
+        students={students}
+        username="tester"
       />,
     ),
   );
@@ -219,7 +260,7 @@ it("scope change aborts a pending lookup and prevents late writes or success UI 
   expect(values.get(key)).toBe(original);
   expect(values.has(key + "-other")).toBe(false);
   expect(message()).not.toContain("Original transaction confirmed");
-  expect(button("Prepare 1 XLM payment").props.disabled).toBe(true);
+  expect(button("Prepare donation").props.disabled).toBe(true);
 });
 it("unmount aborts original lookups and late responses cannot persist confirmation", async () => {
   values.set(key, JSON.stringify({ ...stored, attempted: true }));
@@ -391,17 +432,19 @@ it("preparation stops at 30 seconds without signing, submitting or creating repl
     });
   await mount();
   await click("Connect Freighter");
-  await click("Prepare 1 XLM payment");
+  await selectStudent("Amara Okafor");
+  enterAmount("2.5");
+  await click("Prepare donation");
   await tick(29999);
   expect(signal!.aborted).toBe(false);
-  expect(button("Prepare 1 XLM payment").props.disabled).toBe(true);
+  expect(button("Prepare donation").props.disabled).toBe(true);
   await tick(1);
   expect(signal!.aborted).toBe(true);
   expect(message()).toContain("Response deadline");
   expect(values.size).toBe(0);
   expect(fetch).toHaveBeenCalledTimes(2); // one integration read and one preparation
   expect(signPrepared).not.toHaveBeenCalled();
-  expect(button("Prepare 1 XLM payment").props.disabled).toBe(false);
+  expect(button("Prepare donation").props.disabled).toBe(false);
 });
 it("manual status stops at 30 seconds and retains the exact original signed record", async () => {
   values.set(key, JSON.stringify(stored));
@@ -459,7 +502,11 @@ it("rerendering the same scope does not restart or duplicate bounded confirmatio
   await mount();
   await act(() =>
     renderer!.update(
-      <StarterApp config={{ ready: true, scope, deploymentUrl: scope }} />,
+      <StarterApp
+        config={{ ready: true, scope, deploymentUrl: scope }}
+        students={students}
+        username="tester"
+      />,
     ),
   );
   expect(fetch).toHaveBeenCalledTimes(1);
@@ -480,7 +527,9 @@ it("a late preparation reply after scope change cannot create a record in either
     );
   await mount();
   await click("Connect Freighter");
-  await click("Prepare 1 XLM payment");
+  await selectStudent("Amara Okafor");
+  enterAmount("2.5");
+  await click("Prepare donation");
   await act(() =>
     renderer!.update(
       <StarterApp
@@ -489,6 +538,8 @@ it("a late preparation reply after scope change cannot create a record in either
           scope: scope + "-other",
           deploymentUrl: scope + "-other",
         }}
+        students={students}
+        username="tester"
       />,
     ),
   );
@@ -541,6 +592,8 @@ it("late submit success after scope change cannot start confirmation or write to
           scope: scope + "-other",
           deploymentUrl: scope + "-other",
         }}
+        students={students}
+        username="tester"
       />,
     ),
   );
@@ -562,4 +615,46 @@ it("reload checks an earlier REJECTED response without treating it as final fail
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(action(vi.mocked(fetch).mock.calls[0]?.[1])).toBe("status");
   expect(saved().status).toBe("SUCCESS");
+});
+it("donor selects a student and amount, the prepare route receives the decimal amount, and confirmation gives a personalized thank-you", async () => {
+  vi.mocked(connectWallet).mockResolvedValue(fixtureAddress);
+  vi.mocked(signPrepared).mockResolvedValue(stored.signedXdr);
+  const requests: Record<string, unknown>[] = [];
+  vi.mocked(fetch).mockImplementation(async (_url, options) => {
+    const body = options?.body
+      ? (JSON.parse(options.body as string) as Record<string, unknown>)
+      : {};
+    requests.push(body);
+    if (body.action === "prepare")
+      return Response.json({ data: stored.prepared });
+    if (body.action === "submit")
+      return Response.json({
+        data: { txHash: stored.prepared.txHash, status: "PENDING" },
+      });
+    return status("SUCCESS");
+  });
+  await mount();
+  await click("Connect Freighter");
+  await selectStudent("Amara Okafor");
+  expect(button("Prepare donation").props.disabled).toBe(true);
+  enterAmount("2.5");
+  const preview = renderer!.root
+    .findAllByType("p")
+    .map((p) => p.children.join(""))
+    .find((t) => t.includes("Split preview"));
+  expect(preview).toContain("2.25 XLM");
+  expect(preview).toContain("0.25 XLM");
+  expect(button("Prepare donation").props.disabled).toBe(false);
+  await click("Prepare donation");
+  expect(requests.find((r) => r.action === "prepare")).toMatchObject({
+    from: fixtureAddress,
+    amount: "2.5",
+  });
+  expect(saved().studentId).toBe("amara-okafor");
+  await click("Sign original transaction");
+  await click("Submit saved envelope");
+  await tick(1000);
+  expect(saved().status).toBe("SUCCESS");
+  expect(message()).toContain("Original transaction confirmed");
+  expect(message()).toContain("Thank you for supporting Amara Okafor");
 });

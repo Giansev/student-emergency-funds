@@ -6,6 +6,7 @@ export type Recovery = {
   scope: string;
   address: string;
   prepared: Prepared;
+  studentId?: string;
   signedXdr?: string;
   signing?: boolean;
   attempted?: boolean;
@@ -24,6 +25,8 @@ export function readRecovery(scope: string, raw: string): Recovery {
     r.prepared.networkPassphrase !== TESTNET ||
     !Number.isFinite(Date.parse(r.prepared.expiresAt)) ||
     !/^[a-f0-9]{64}$/.test(r.prepared.txHash) ||
+    (r.studentId !== undefined &&
+      (typeof r.studentId !== "string" || r.studentId.length > 64)) ||
     (r.signing !== undefined && typeof r.signing !== "boolean") ||
     (r.attempted !== undefined && typeof r.attempted !== "boolean") ||
     (r.status !== undefined &&
