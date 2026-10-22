@@ -1,7 +1,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "crypto";
 
-export const SESSION_COOKIE = "scholarfund_session";
+export const SESSION_COOKIE = "stellaraid_session";
 export const SESSION_MAX_AGE_S = 12 * 60 * 60;
 export type SessionRole = "donor" | "admin";
 export type SessionUser = { username: string; role: SessionRole };

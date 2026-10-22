@@ -1,4 +1,4 @@
-# ScholarFund — student donation app (Paiflow + Stellar)
+# StellarAid — student donation app (Paiflow + Stellar)
 
 A Next.js web app for collecting **testnet XLM donations** that support students in need of financial assistance. Donors connect Freighter, choose a student to champion, enter a donation amount, and sign the payment in their wallet. Every donation is split automatically: **90% goes to the student** and **10% goes to the student organization**.
 
@@ -6,7 +6,7 @@ The split is enforced by a **Paiflow deployment**, not by app code. The app driv
 
 ## How the 90/10 split works
 
-Payment logic lives in the flow you deploy in the Paiflow console. ScholarFund expects an **On Receive (native XLM, testnet) → Split** flow:
+Payment logic lives in the flow you deploy in the Paiflow console. StellarAid expects an **On Receive (native XLM, testnet) → Split** flow:
 
 1. Recipient 1 — the student's Stellar address at **9000 bps (90%)**
 2. Recipient 2 — the student organization's Stellar address at **1000 bps (10%)**, placed last so the rounding remainder lands with the org
@@ -20,6 +20,7 @@ Percentage shares must each be greater than zero and sum to exactly 10,000 bps. 
 - **Transparent split preview** — a live 90/10 breakdown of the entered amount before the donor commits
 - **Sign-in gate** — a demo username/password (server-checked, never in the browser bundle) remembered in a signed HttpOnly cookie; the payment API refuses unsigned requests
 - **Admin panel** — a separate admin role that curates the student directory: post each student's name and story and set the funding goal (in XLM); donors see the updated directory immediately
+- **Fund transparency dashboard** — totals from confirmed donations recorded server-side (idempotent by transaction hash, re-verified with the platform before writing), expected 90/10 split, per-student progress bars against goals, and per-recipient payout evidence pulled from the deployment's event feed
 - **Non-custodial payments** — Freighter signs in the browser using the server-prepared testnet passphrase; the app never handles private keys
 - **Exact-envelope submission** — the signed transaction body and hash are compared against the original preparation; altered operations and fee-bump envelopes are rejected
 - **Bounded confirmation and recovery** — interrupted donations resume by re-checking the original transaction hash only; the exact signed envelope is the only thing ever retried
@@ -113,8 +114,12 @@ An unresolved donation record for another platform or deployment blocks a new do
 | `lib/student-store.ts`         | Validated, atomic read/write of `data/students.json`            |
 | `app/api/students/route.ts`    | Admin-only directory replacement                                |
 | `components/admin-app.tsx`     | Admin panel for student stories and goals                       |
+| `lib/donation-store.ts`        | Validated donation ledger and transparency aggregation          |
+| `app/api/donations/route.ts`   | Dashboard reads; confirmed-donation recording (idempotent)      |
 | `lib/transaction.ts`           | Transaction hashing and unchanged-envelope checks               |
-| `components/starter-app.tsx`   | Donation walkthrough: directory, amount, split preview, recovery|
+| `components/starter-app.tsx`   | Donation walkthrough: transparency matrix, directory, amount, recovery |
+| `components/signed-in-app.tsx` | Signed-in shell that switches donor/admin views                  |
+| `components/user-menu.tsx`     | Header user menu: identity, role, view switch, logout            |
 
 The SDK supplies transport, typed responses and API metadata. Your app supplies wallet consent, storage, authorization, reconciliation decisions and business rules.
 
