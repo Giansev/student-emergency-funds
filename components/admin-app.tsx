@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import type { Student } from "@/lib/types";
 import { fromStroops, toStroops } from "@/lib/amount";
 import { browserRequest } from "@/lib/browser-api";
+import { UserMenu } from "@/components/user-menu";
 
 type Draft = { id: string; name: string; story: string; goalXlm: string };
 
@@ -19,9 +20,13 @@ function toDrafts(students: Student[]): Draft[] {
 export function AdminApp({
   username,
   students,
+  view = "admin",
+  onSwitchView = () => undefined,
 }: {
   username: string;
   students: Student[];
+  view?: "donate" | "admin";
+  onSwitchView?: (view: "donate" | "admin") => void;
 }) {
   const router = useRouter();
   const [drafts, setDrafts] = useState<Draft[]>(() => toDrafts(students));
@@ -71,23 +76,22 @@ export function AdminApp({
   return (
     <main>
       <header>
-        <h1>ScholarFund — admin</h1>
+        <img
+          className="logo"
+          src="/stellaraid-logo.jpeg"
+          alt="StellarAid logo"
+        />
+        <h1>StellarAid — admin</h1>
         <span className="chip" data-testid="network-chip">
           TESTNET
         </span>
         <span className="session">
-          Signed in as {username} (admin){" "}
-          <button
-            type="button"
-            className="link"
-            onClick={() =>
-              void browserRequest("/api/session", { action: "logout" })
-                .catch(() => undefined)
-                .finally(() => router.refresh())
-            }
-          >
-            Log out
-          </button>
+          <UserMenu
+            username={username}
+            role="admin"
+            view={view}
+            onSwitchView={onSwitchView}
+          />
         </span>
       </header>
       <p>
@@ -135,6 +139,7 @@ export function AdminApp({
             </label>
             <button
               type="button"
+              className="danger"
               disabled={busy || drafts.length === 1}
               onClick={() => removeStudent(index)}
             >
@@ -147,6 +152,7 @@ export function AdminApp({
         </button>{" "}
         <button
           type="button"
+          className="primary"
           disabled={busy}
           onClick={() => void save()}
         >

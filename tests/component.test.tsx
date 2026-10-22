@@ -11,6 +11,7 @@ vi.mock("@/lib/wallet", () => ({
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
+import { SignedInApp } from "@/components/signed-in-app";
 const scope =
   "https://beta.app.paiflow.xyz/12345678-1234-1234-1234-123456789abc";
 const key = `paiflow-sdk-payment-v2:${scope}`;
@@ -105,6 +106,16 @@ function button(label: string) {
     .findAllByType("button")
     .find((b) => b.children.join("") === label)!;
 }
+function menuTrigger() {
+  return renderer!.root
+    .findAllByType("button")
+    .find((b) => b.props["aria-haspopup"] === "menu")!;
+}
+async function openUserMenu() {
+  await act(async () => {
+    void menuTrigger().props.onClick();
+  });
+}
 function card(name: string) {
   return renderer!.root
     .findAllByType("button")
@@ -131,6 +142,13 @@ function enterAmount(value: string) {
 }
 function message() {
   return renderer!.root.findByProps({ role: "status" }).children.join("");
+}
+function textOf(node: { children: unknown[] }): string {
+  return node.children
+    .map((c) =>
+      typeof c === "string" ? c : textOf(c as { children: unknown[] }),
+    )
+    .join("");
 }
 async function click(label: string) {
   await act(async () => {
@@ -208,6 +226,30 @@ it("bounded reload recovery retains UNKNOWN evidence and leaves manual original 
   vi.mocked(fetch).mockResolvedValue(status("SUCCESS"));
   await click("Check original transaction");
   expect(saved().status).toBe("SUCCESS");
+});
+it("explains why the amount is locked while a previous payment is saved", async () => {
+  values.set(key, JSON.stringify(stored));
+  await mount();
+  const text = renderer!.root
+    .findAllByProps({ role: "alert" })
+    .map((a) => a.children.join(""))
+    .join("\n");
+  expect(text).toContain("amount stays locked");
+  expect(text).toContain("Check original transaction");
+  expect(text).toContain("final result is acknowledged");
+});
+it("points to acknowledgement when the saved payment is final", async () => {
+  values.set(
+    key,
+    JSON.stringify({ ...stored, attempted: true, status: "SUCCESS" }),
+  );
+  await mount();
+  const text = renderer!.root
+    .findAllByProps({ role: "alert" })
+    .map((a) => a.children.join(""))
+    .join("\n");
+  expect(text).toContain("saved payment is final");
+  expect(text).toContain("Acknowledge final result and clear");
 });
 it("Stop checking aborts only recovery reads and ignores their late SUCCESS response", async () => {
   values.set(key, JSON.stringify({ ...stored, attempted: true }));
@@ -424,8 +466,13 @@ it("preparation stops at 30 seconds without signing, submitting or creating repl
   vi.mocked(connectWallet).mockResolvedValue(fixtureAddress);
   let signal: AbortSignal | undefined;
   vi.mocked(fetch)
-    .mockResolvedValueOnce(Response.json({ data: {} }))
-    .mockImplementation((_url, options) => {
+    .mockResolvedValueOnce(Response.json({ data: {} })) // mount-time dashboard load (ignored)
+    .mockImplementation(async (_url, options) => {
+      const body = options?.body
+        ? JSON.parse(options.body as string)
+        : null;
+      if (body?.action !== "prepare")
+        return Response.json({ data: {} }); // integration readiness
       expect(action(options)).toBe("prepare");
       signal = options!.signal as AbortSignal;
       return stalledResponse(options);
@@ -442,7 +489,10 @@ it("preparation stops at 30 seconds without signing, submitting or creating repl
   expect(signal!.aborted).toBe(true);
   expect(message()).toContain("Response deadline");
   expect(values.size).toBe(0);
-  expect(fetch).toHaveBeenCalledTimes(2); // one integration read and one preparation
+  const kinds = vi.mocked(fetch).mock.calls.map((c) =>
+    c[1]?.body ? JSON.parse(c[1].body as string).action : "read",
+  );
+  expect(kinds).toEqual(["read", "read", "prepare"]); // dashboard, integration, preparation
   expect(signPrepared).not.toHaveBeenCalled();
   expect(button("Prepare donation").props.disabled).toBe(false);
 });
@@ -638,10 +688,9 @@ it("donor selects a student and amount, the prepare route receives the decimal a
   await selectStudent("Amara Okafor");
   expect(button("Prepare donation").props.disabled).toBe(true);
   enterAmount("2.5");
-  const preview = renderer!.root
-    .findAllByType("p")
-    .map((p) => p.children.join(""))
-    .find((t) => t.includes("Split preview"));
+  const preview = textOf(
+    renderer!.root.findByProps({ className: "split-legend" }),
+  );
   expect(preview).toContain("2.25 XLM");
   expect(preview).toContain("0.25 XLM");
   expect(button("Prepare donation").props.disabled).toBe(false);
@@ -651,10 +700,99 @@ it("donor selects a student and amount, the prepare route receives the decimal a
     amount: "2.5",
   });
   expect(saved().studentId).toBe("amara-okafor");
+  expect(saved().amountStroops).toBe("25000000");
   await click("Sign original transaction");
   await click("Submit saved envelope");
   await tick(1000);
   expect(saved().status).toBe("SUCCESS");
   expect(message()).toContain("Original transaction confirmed");
   expect(message()).toContain("Thank you for supporting Amara Okafor");
+  expect(
+    requests.find((r) => r.amountStroops === "25000000" && r.txHash),
+  ).toMatchObject({
+    txHash: stored.prepared.txHash,
+    studentId: "amara-okafor",
+    amountStroops: "25000000",
+  });
+});
+it("quick amount chips fill the amount and the split bar renders", async () => {
+  vi.mocked(connectWallet).mockResolvedValue(fixtureAddress);
+  await mount();
+  await click("Connect Freighter");
+  await selectStudent("Amara Okafor");
+  await click("10 XLM");
+  expect(renderer!.root.findByType("input").props.value).toBe("10");
+  expect(
+    renderer!.root.findByProps({ className: "split-bar" }),
+  ).toBeDefined();
+  const legend = textOf(
+    renderer!.root.findByProps({ className: "split-legend" }),
+  );
+  expect(legend).toContain("9 XLM");
+  expect(legend).toContain("1 XLM");
+  expect(button("Prepare donation").props.disabled).toBe(false);
+});
+it("admins can switch between the admin panel and the donation app", async () => {
+  await act(() => {
+    renderer = create(
+      <SignedInApp
+        config={{ ready: true, scope, deploymentUrl: scope }}
+        students={students}
+        username="boss"
+        role="admin"
+      />,
+    );
+  });
+  // Admins land on the panel and can switch to donating via the user menu.
+  expect(button("Add student")).toBeDefined();
+  await openUserMenu();
+  await click("Donate instead");
+  expect(button("Connect Freighter")).toBeDefined();
+  expect(button("Prepare donation")).toBeDefined();
+  await openUserMenu();
+  await click("Manage students");
+  expect(button("Add student")).toBeDefined();
+  await openUserMenu();
+  await click("Donate instead");
+  await openUserMenu();
+  expect(button("Manage students")).toBeDefined();
+});
+it("user menu hides its items until opened and logs out on request", async () => {
+  await mount();
+  expect(menuTrigger().props["aria-expanded"]).toBe(false);
+  expect(button("Log out")).toBeUndefined();
+  await openUserMenu();
+  expect(menuTrigger().props["aria-expanded"]).toBe(true);
+  const role = renderer!.root.findByProps({ className: "user-menu-role" });
+  expect(role.children.join("")).toContain("Signed in as tester");
+  expect(role.children.join("")).toContain("Donor");
+  await click("Log out");
+  const logout = vi
+    .mocked(fetch)
+    .mock.calls.find(([, options]) => {
+      const body = (options as RequestInit | undefined)?.body;
+      return (
+        typeof body === "string" && JSON.parse(body).action === "logout"
+      );
+    });
+  expect(logout).toBeDefined();
+  expect(String(logout![0])).toContain("/api/session");
+});
+it("donors go straight to the donation app with no admin switch", async () => {
+  await act(() => {
+    renderer = create(
+      <SignedInApp
+        config={{ ready: true, scope, deploymentUrl: scope }}
+        students={students}
+        username="donor"
+        role="donor"
+      />,
+    );
+  });
+  expect(button("Connect Freighter")).toBeDefined();
+  expect(
+    renderer!.root
+      .findAllByType("button")
+      .some((b) => b.children.join("") === "Manage students"),
+  ).toBe(false);
 });

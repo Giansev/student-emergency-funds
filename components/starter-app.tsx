@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import type { PublicConfig, Prepared, Result, Student } from "@/lib/types";
 import {
   MAX_DONATION_STROOPS,
@@ -9,7 +8,36 @@ import {
   TOTAL_SHARE_BPS,
 } from "@/lib/types";
 import { fromStroops, toStroops } from "@/lib/amount";
+import type { DonationStats } from "@/lib/donation-store";
 import { ORGANIZATION } from "@/lib/students";
+
+function shortAddress(address: string | null) {
+  return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "A recipient";
+}
+function CardProgress({
+  raisedStroops,
+  goalStroops,
+}: {
+  raisedStroops?: string;
+  goalStroops: string;
+}) {
+  if (raisedStroops === undefined) return null;
+  const pct = Math.min(
+    Number((BigInt(raisedStroops) * 100n) / BigInt(goalStroops)),
+    100,
+  );
+  return (
+    <span className="card-progress">
+      <progress value={pct} max={100} />
+      <span className="pct">{pct}% funded</span>
+    </span>
+  );
+}
+function statusChipClass(status: string) {
+  if (status === "SUCCESS") return "success";
+  if (status === "FAILED" || status === "REJECTED") return "failed";
+  return "pending";
+}
 import {
   BrowserRequestError,
   browserRequest,
@@ -30,6 +58,7 @@ import {
   assertNoConflictingRecovery,
 } from "@/lib/recovery";
 import type { Recovery } from "@/lib/recovery";
+import { UserMenu } from "@/components/user-menu";
 
 type Operation = {
   signal: AbortSignal;
@@ -42,12 +71,17 @@ export function StarterApp({
   config,
   students,
   username,
+  role = "donor",
+  view = "donate",
+  onSwitchView = () => undefined,
 }: {
   config: PublicConfig;
   students: Student[];
   username: string;
+  role?: "donor" | "admin";
+  view?: "donate" | "admin";
+  onSwitchView?: (view: "donate" | "admin") => void;
 }) {
-  const router = useRouter();
   const [address, setAddress] = useState("");
   const [selected, setSelected] = useState("");
   const [amount, setAmount] = useState("");
@@ -80,6 +114,51 @@ export function StarterApp({
     ? (BigInt(stroops) - BigInt(studentShare)).toString()
     : "";
   const student = students.find((s) => s.id === selected);
+  const [stats, setStats] = useState<DonationStats | null>(null);
+  const [opsOpen, setOpsOpen] = useState(false);
+  const [recOpen, setRecOpen] = useState(false);
+  const expectedStudent = stats
+    ? (
+        (BigInt(stats.totalStroops) * STUDENT_SHARE_BPS) /
+        TOTAL_SHARE_BPS
+      ).toString()
+    : "0";
+  const expectedOrg = stats
+    ? (BigInt(stats.totalStroops) - BigInt(expectedStudent)).toString()
+    : "0";
+  async function loadStats() {
+    try {
+      const s = await browserRequest<DonationStats>("/api/donations");
+      if (
+        !s ||
+        typeof s.totalStroops !== "string" ||
+        !/^\d+$/.test(s.totalStroops) ||
+        !Array.isArray(s.byStudent) ||
+        !Array.isArray(s.recent)
+      )
+        return;
+      setStats(s);
+    } catch {
+      /* the dashboard is best-effort and never blocks payments */
+    }
+  }
+  function recordDonation(current: Recovery) {
+    if (!current.amountStroops) return;
+    const body: Record<string, string> = {
+      txHash: current.prepared.txHash,
+      amountStroops: current.amountStroops,
+    };
+    if (current.studentId) body.studentId = current.studentId;
+    void browserRequest<DonationStats>("/api/donations", body)
+      .then((s) => {
+        if (s && typeof s.totalStroops === "string") setStats(s);
+      })
+      .catch(() => undefined);
+  }
+  // Load transparency data when there is no unresolved payment in this browser.
+  useEffect(() => {
+    if (!blocked && !record && loadedKey.current === key) void loadStats();
+  }, [key, blocked, record]);
   const scopeKey = useRef(key);
   scopeKey.current = key;
   const loadedKey = useRef<string | null>(null);
@@ -220,6 +299,7 @@ export function StarterApp({
           result.status === "REJECTED"
         )
           op.message(statusMessage(result, current));
+        if (result.status === "SUCCESS") recordDonation(current);
       },
     });
     if (outcome === "unresolved") op.message(CONFIRMATION_UNRESOLVED);
@@ -261,6 +341,7 @@ export function StarterApp({
       address,
       prepared,
       studentId: student.id,
+      amountStroops: stroops,
     });
     op.message(
       "Prepared and saved. Review the wallet transaction before approving.",
@@ -333,6 +414,7 @@ export function StarterApp({
     assertStatus(result, current.prepared.txHash);
     op.save({ ...current, status: result.status });
     op.message(statusMessage(result, current));
+    if (result.status === "SUCCESS") recordDonation(current);
   }
   async function clear(current: Recovery | null, op: Operation) {
     if (!current || !terminal(current))
@@ -351,25 +433,30 @@ export function StarterApp({
   return (
     <main>
       <header>
-        <h1>ScholarFund — student donations</h1>
+        <img
+          className="logo"
+          src="/stellaraid-logo.jpeg"
+          alt="StellarAid logo"
+        />
+        <h1>StellarAid</h1>
         <span className="chip" data-testid="network-chip">
           TESTNET
         </span>
         <span className="session">
-          Signed in as {username}{" "}
-          <button
-            type="button"
-            className="link"
-            onClick={() =>
-              void browserRequest("/api/session", { action: "logout" })
-                .catch(() => undefined)
-                .finally(() => router.refresh())
-            }
-          >
-            Log out
-          </button>
+          <UserMenu
+            username={username}
+            role={role}
+            view={view}
+            onSwitchView={onSwitchView}
+          />
         </span>
       </header>
+      <nav className="subnav" aria-label="Sections">
+        <a href="#transparency">Transparency</a>
+        <a href="#students">Students</a>
+        <a href="#donate">Donate</a>
+        <a href="#activity">Activity</a>
+      </nav>
       <p>
         Donate testnet XLM to support students in need. Every donation is split
         by the deployed Paiflow flow: 90% to the student and 10% to the{" "}
@@ -385,8 +472,144 @@ export function StarterApp({
           </a>
         </p>
       )}
-      <section>
-        <h2>1. Choose a student</h2>
+      <section id="transparency">
+        <h2>1. Fund transparency</h2>
+        <p className="muted">
+          Totals are recorded by this app from confirmed transactions. Per-student
+          amounts reflect donor intent; the deployed flow decides actual on-chain
+          routing. Inspect the deployment activity to verify payouts.
+        </p>
+        {stats ? (
+          <>
+            <div className="stat-tiles">
+              <div className="stat-tile">
+                <span className="value">
+                  {fromStroops(stats.totalStroops)} XLM
+                </span>
+                <span className="label">Total raised</span>
+              </div>
+              <div className="stat-tile">
+                <span className="value">{stats.count}</span>
+                <span className="label">
+                  Confirmed donation{stats.count === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="stat-tile">
+                <span className="value">
+                  {stats.count > 0
+                    ? fromStroops(
+                        (
+                          BigInt(stats.totalStroops) / BigInt(stats.count)
+                        ).toString(),
+                      )
+                    : "0"}{" "}
+                  XLM
+                </span>
+                <span className="label">Average donation</span>
+              </div>
+            </div>
+            <div className="table-scroll">
+            <table className="matrix">
+              <caption className="muted">
+                Donations × funding legs, split per the deployed 90/10 flow.
+                Rounding remainder goes to the {ORGANIZATION.name}. Amounts
+                reflect donor intent, not verified on-chain payouts.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Student</th>
+                  <th scope="col">Donations</th>
+                  <th scope="col">Raised</th>
+                  <th scope="col">to student (90%)</th>
+                  <th scope="col">to {ORGANIZATION.name} (10%)</th>
+                  <th scope="col">Goal</th>
+                  <th scope="col">Funded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.byStudent.map((s) => {
+                  const studentLeg = (
+                    (BigInt(s.raisedStroops) * STUDENT_SHARE_BPS) /
+                    TOTAL_SHARE_BPS
+                  ).toString();
+                  const orgLeg = (
+                    BigInt(s.raisedStroops) - BigInt(studentLeg)
+                  ).toString();
+                  const showBar = s.goalStroops !== "0";
+                  const pct = showBar
+                    ? Number(
+                        (BigInt(s.raisedStroops) * 100n) /
+                          BigInt(s.goalStroops),
+                      )
+                    : null;
+                  return (
+                    <tr key={s.id || "unassigned"}>
+                      <th scope="row">{s.name}</th>
+                      <td>{s.count}</td>
+                      <td>{fromStroops(s.raisedStroops)} XLM</td>
+                      <td>{fromStroops(studentLeg)} XLM</td>
+                      <td>{fromStroops(orgLeg)} XLM</td>
+                      <td>
+                        {showBar ? `${fromStroops(s.goalStroops)} XLM` : "—"}
+                      </td>
+                      <td>
+                        {pct === null ? (
+                          "—"
+                        ) : (
+                          <>
+                            <progress value={Math.min(pct, 100)} max={100} />{" "}
+                            {pct}%
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">All donations</th>
+                  <td>{stats.count}</td>
+                  <td>{fromStroops(stats.totalStroops)} XLM</td>
+                  <td>{fromStroops(expectedStudent)} XLM</td>
+                  <td>{fromStroops(expectedOrg)} XLM</td>
+                  <td>—</td>
+                  <td>—</td>
+                </tr>
+              </tfoot>
+            </table>
+            </div>
+            {stats.recent.length > 0 && (
+              <ol>
+                {stats.recent.map((d) => (
+                  <li key={d.txHash}>
+                    <code>{d.txHash.slice(0, 12)}…</code> —{" "}
+                    {fromStroops(d.amountStroops)} XLM
+                    {d.studentName ? ` for ${d.studentName}` : ""}.{" "}
+                    {d.payouts === null
+                      ? "Payout events unavailable."
+                      : d.payouts.length === 0
+                        ? "No payout events recorded yet."
+                        : `${d.payouts
+                            .map(
+                              (p) =>
+                                `${shortAddress(p.address)} received ${fromStroops(p.amountStroops)} XLM`,
+                            )
+                            .join("; ")}.`}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </>
+        ) : (
+          <p>Transparency data is not loaded yet.</p>
+        )}
+        <button type="button" disabled={busy} onClick={() => void loadStats()}>
+          Refresh transparency data
+        </button>
+      </section>
+      <section id="students">
+        <h2>2. Choose a student</h2>
         <p className="muted">
           Your choice is recorded with the donation and shown in the thank-you
           message. On-chain routing always follows the recipients configured in
@@ -404,13 +627,19 @@ export function StarterApp({
               <strong>{s.name}</strong>
               <span>{s.story}</span>
               <span>Goal: {fromStroops(s.goalStroops)} XLM</span>
+              <CardProgress
+                raisedStroops={
+                  stats?.byStudent.find((b) => b.id === s.id)?.raisedStroops
+                }
+                goalStroops={s.goalStroops}
+              />
             </button>
           ))}
         </div>
         {student && <p>Supporting: {student.name}</p>}
       </section>
-      <section>
-        <h2>2. Connect and prepare</h2>
+      <section id="donate">
+        <h2>3. Connect and prepare</h2>
         <button
           disabled={busy || !config.ready || blocked}
           onClick={() =>
@@ -434,19 +663,59 @@ export function StarterApp({
             disabled={busy || !!record}
           />
         </label>
+        <div className="amount-chips" role="group" aria-label="Quick amount choices">
+          {["5", "10", "25", "50"].map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              disabled={busy || !!record}
+              className={amount === chip ? "selected" : ""}
+              onClick={() => setAmount(chip)}
+            >
+              {chip} XLM
+            </button>
+          ))}
+        </div>
+        {record && (
+          <p role="alert">
+            {terminal(record)
+              ? "The saved payment is final, so the amount stays locked. Use “Acknowledge final result and clear” in Verify and recover below to unlock a new donation."
+              : "A previous payment is saved in this browser, so the amount stays locked until it is resolved. Use “Check original transaction” in Verify and recover below; a new donation is possible only after the final result is acknowledged."}
+          </p>
+        )}
         {amountError ? (
           <p role="alert">{amountError}</p>
         ) : (
           stroops && (
-            <p>
-              Split preview: {fromStroops(studentShare)} XLM to the student and{" "}
-              {fromStroops(orgShare)} XLM ({Number(ORGANIZATION.shareBps) / 100}
-              %) to the {ORGANIZATION.name}. The deployed flow is authoritative
-              for rounding.
-            </p>
+            <div className="split-preview">
+              <div
+                className="split-bar"
+                role="img"
+                aria-label="90 percent to the student and 10 percent to the student organization"
+              >
+                <span
+                  className="split-student"
+                  style={{ width: `${Number(STUDENT_SHARE_BPS) / 100}%` }}
+                />
+                <span
+                  className="split-org"
+                  style={{
+                    width: `${Number(TOTAL_SHARE_BPS - STUDENT_SHARE_BPS) / 100}%`,
+                  }}
+                />
+              </div>
+              <p className="split-legend">
+                <strong>{fromStroops(studentShare)} XLM</strong> (90%) to the
+                student and <strong>{fromStroops(orgShare)} XLM</strong> (
+                {Number(ORGANIZATION.shareBps) / 100}%) to the{" "}
+                {ORGANIZATION.name}. The deployed flow is authoritative for
+                rounding.
+              </p>
+            </div>
           )
         )}
         <button
+          className="primary"
           disabled={
             busy ||
             blocked ||
@@ -461,8 +730,14 @@ export function StarterApp({
           Prepare donation
         </button>
       </section>
-      <section>
-        <h2>3. Sign and submit</h2>
+      <details
+        className="step"
+        open={opsOpen || !!record}
+        onToggle={(e) => setOpsOpen(e.currentTarget.open)}
+      >
+        <summary>
+          <h2>4. Sign and submit</h2>
+        </summary>
         <button
           disabled={
             busy || !record || !!record.signedXdr || terminal(record) || blocked
@@ -472,6 +747,7 @@ export function StarterApp({
           Sign original transaction
         </button>{" "}
         <button
+          className="primary"
           disabled={
             busy ||
             !record?.signedXdr ||
@@ -484,9 +760,16 @@ export function StarterApp({
             ? "Retry exact saved envelope"
             : "Submit saved envelope"}
         </button>
-      </section>
-      <section>
-        <h2>4. Verify and recover</h2>
+      </details>
+      <details
+        className="step"
+        id="activity"
+        open={recOpen || !!record}
+        onToggle={(e) => setRecOpen(e.currentTarget.open)}
+      >
+        <summary>
+          <h2>5. Verify and recover</h2>
+        </summary>
         <p>
           Reloading restores the original preparation and signed envelope. Keep
           this browser's storage until the original transaction is resolved.
@@ -498,7 +781,16 @@ export function StarterApp({
               Original transaction: <code>{record.prepared.txHash}</code>
             </p>
             <p>Preparation expires: {record.prepared.expiresAt}</p>
-            <p>Status: {record.status || "Not checked"}</p>
+            <p>
+              Status:{" "}
+              {record.status ? (
+                <span className={`status-chip ${statusChipClass(record.status)}`}>
+                  {record.status}
+                </span>
+              ) : (
+                "Not checked"
+              )}
+            </p>
           </>
         )}
         <button
@@ -518,12 +810,13 @@ export function StarterApp({
           verify your intended payment and payout rules. Transaction
           confirmation alone is not application payment verification.
         </p>
-      </section>
+      </details>
       <p role="status" aria-live="polite">
         {confirming ? message : busy ? "Working…" : message}
       </p>
       {confirming && (
         <button
+          className="danger"
           onClick={() => {
             active.current?.abort();
             setMessage(CONFIRMATION_UNRESOLVED);

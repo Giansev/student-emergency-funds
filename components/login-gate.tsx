@@ -31,7 +31,12 @@ export function LoginGate() {
   return (
     <main>
       <header>
-        <h1>ScholarFund — student donations</h1>
+        <img
+          className="logo"
+          src="/stellaraid-logo.jpeg"
+          alt="StellarAid logo"
+        />
+        <h1>StellarAid</h1>
         <span className="chip" data-testid="network-chip">
           TESTNET
         </span>
@@ -59,7 +64,11 @@ export function LoginGate() {
               disabled={busy}
             />
           </label>
-          <button disabled={busy || !username || !password} type="submit">
+          <button
+            className="primary"
+            disabled={busy || !username || !password}
+            type="submit"
+          >
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>

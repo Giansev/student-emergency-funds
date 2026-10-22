@@ -1,0 +1,16 @@
+[
+  {
+    "txHash": "fdf05b8303813a32823685a1ef2e89a0de4e4e66c4ffc552cbb7d141ba4556ac",
+    "studentId": "diego-ramirez",
+    "amountStroops": "250000000",
+    "payouts": [],
+    "recordedAt": "2026-10-22T07:35:22.150Z"
+  },
+  {
+    "txHash": "0665fec30c614ac2a9e74e86e89935c9b6f7ef1f983b49202c18b8886365c6c4",
+    "studentId": "diego-ramirez",
+    "amountStroops": "500000000",
+    "payouts": [],
+    "recordedAt": "2026-10-22T07:38:27.914Z"
+  }
+]

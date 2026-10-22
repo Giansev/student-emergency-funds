@@ -128,3 +128,47 @@ export async function paymentStatus(txHash: string) {
     );
   return data;
 }
+export type PayoutEvidence = {
+  eventId: string;
+  address: string | null;
+  amountStroops: string;
+};
+/** PAYOUT events recorded by the deployment for one transaction. */
+export async function paymentPayouts(
+  txHash: string,
+): Promise<PayoutEvidence[]> {
+  if (!/^[a-f0-9]{64}$/.test(txHash))
+    throw new Error("Invalid transaction hash.");
+  const { data } = await deployment().events.list({ txHash, limit: 100 });
+  const items = (data as { items?: unknown }).items;
+  if (!Array.isArray(items)) throw new Error("Unexpected events response.");
+  const payouts: PayoutEvidence[] = [];
+  for (const item of items) {
+    const e = item as {
+      eventId?: unknown;
+      txHash?: unknown;
+      kind?: unknown;
+      data?: unknown;
+    };
+    if (e?.kind !== "PAYOUT" || e?.txHash !== txHash) continue;
+    const d = (e.data ?? {}) as Record<string, unknown>;
+    const amount =
+      typeof d.amountStroops === "string"
+        ? d.amountStroops
+        : typeof d.amountOut === "string"
+          ? d.amountOut
+          : typeof d.amount === "string"
+            ? d.amount
+            : null;
+    if (!amount || !/^\d+$/.test(amount)) continue;
+    const address = [d.to, d.recipient, d.address].find(
+      (x): x is string => typeof x === "string" && x.length <= 64,
+    );
+    payouts.push({
+      eventId: String(e.eventId ?? ""),
+      address: address ?? null,
+      amountStroops: amount,
+    });
+  }
+  return payouts;
+}

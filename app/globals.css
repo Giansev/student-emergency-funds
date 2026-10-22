@@ -21,6 +21,13 @@ header {
 h1 {
   font-size: 1.8rem;
 }
+.logo {
+  height: 44px;
+  width: 44px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid #677086;
+}
 a {
   color: #bfc9ff;
   overflow-wrap: anywhere;
@@ -82,12 +89,23 @@ fieldset.editor {
 button {
   padding: 10px 16px;
   margin: 4px 0;
-  background: #cac5ff;
-  color: #181329;
-  border: 0;
-  border-radius: 4px;
+  background: #232838;
+  color: #eef0f6;
+  border: 1px solid #8792ad;
+  border-radius: 6px;
   font: inherit;
   cursor: pointer;
+}
+button.primary {
+  background: #cac5ff;
+  color: #181329;
+  border-color: transparent;
+  font-weight: 600;
+}
+button.danger {
+  background: transparent;
+  border-color: #ff9d9d;
+  color: #ffb8b8;
 }
 button:disabled {
   opacity: 0.6;
@@ -133,6 +151,54 @@ button.link {
   padding: 0 4px;
   margin: 0;
 }
+.user-menu {
+  position: relative;
+  display: inline-block;
+}
+.user-menu-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+}
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #e5bfff;
+  color: #12141c;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.user-menu-items {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  min-width: 220px;
+  background: #1c202c;
+  border: 1px solid #8792ad;
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.user-menu-items button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 4px 0;
+}
+.user-menu-role {
+  margin: 4px 6px 8px;
+  font-size: 0.85rem;
+}
+progress {
+  width: 140px;
+  vertical-align: middle;
+}
 .address,
 pre {
   overflow-wrap: anywhere;
@@ -147,4 +213,183 @@ ol {
 li {
   margin: 20px 0;
   border-bottom: 1px solid #677086;
+}
+table.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.95rem;
+}
+table.matrix caption {
+  text-align: left;
+  padding-bottom: 8px;
+}
+table.matrix th,
+table.matrix td {
+  border: 1px solid #677086;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+table.matrix tbody th {
+  min-width: 110px;
+}
+table.matrix tbody td,
+table.matrix tfoot td {
+  white-space: nowrap;
+}
+table.matrix thead th {
+  background: #1c202c;
+}
+table.matrix tfoot th,
+table.matrix tfoot td {
+  border-top: 2px solid #8792ad;
+  font-weight: 600;
+}
+
+/* Sticky section navigation */
+.subnav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  background: #101219;
+  border-bottom: 1px solid #2a2f3d;
+  margin: 12px 0;
+}
+.subnav a {
+  padding: 6px 12px;
+  border-radius: 16px;
+  text-decoration: none;
+  color: #aab1c5;
+  font-size: 0.9rem;
+}
+.subnav a:hover {
+  background: #1c202c;
+  color: #eef0f6;
+}
+
+/* Dashboard stat tiles */
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.stat-tile {
+  background: #1c202c;
+  border: 1px solid #677086;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.stat-tile .value {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+.stat-tile .label {
+  font-size: 0.85rem;
+  color: #aab1c5;
+}
+
+/* Quick amount chips */
+.amount-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.amount-chips button {
+  padding: 6px 14px;
+  border-radius: 16px;
+  margin: 0;
+}
+.amount-chips button.selected {
+  background: #cac5ff;
+  color: #181329;
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/* Visual 90/10 split preview */
+.split-preview {
+  margin: 12px 0;
+}
+.split-bar {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  border: 1px solid #677086;
+}
+.split-student {
+  background: #8f7bff;
+}
+.split-org {
+  background: #3d4b8f;
+}
+.split-legend {
+  font-size: 0.9rem;
+  margin: 6px 0 0;
+}
+
+/* Color-coded transaction status */
+.status-chip {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.status-chip.success {
+  background: #1d3a2a;
+  color: #7fe0a8;
+  border: 1px solid #2f6b47;
+}
+.status-chip.pending {
+  background: #3a3320;
+  color: #ffd97f;
+  border: 1px solid #6b5c2f;
+}
+.status-chip.failed {
+  background: #3a2020;
+  color: #ff9d9d;
+  border: 1px solid #6b2f2f;
+}
+
+/* Horizontal scroll for the matrix on narrow screens */
+.table-scroll {
+  overflow-x: auto;
+}
+.table-scroll table.matrix {
+  min-width: 640px;
+}
+
+/* Funding progress on student cards */
+.card-progress {
+  display: block;
+  margin-top: 10px;
+}
+.card-progress progress {
+  width: 100%;
+}
+.card-progress .pct {
+  font-size: 0.85rem;
+  color: #aab1c5;
+}
+
+/* Collapsible walkthrough steps */
+details.step summary {
+  cursor: pointer;
+}
+details.step summary h2 {
+  display: inline;
+  font-size: 1.5em;
+  margin: 0;
+}
+details.step[open] summary {
+  margin-bottom: 8px;
 }
