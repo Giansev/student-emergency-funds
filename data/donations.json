@@ -12,5 +12,12 @@
     "amountStroops": "500000000",
     "payouts": [],
     "recordedAt": "2026-10-22T07:38:27.914Z"
+  },
+  {
+    "txHash": "0f0399a771c4fd316af5e844931688ac05f7fe26cd92f858e1d19684d6202186",
+    "studentId": "amara-okafor",
+    "amountStroops": "25000000000",
+    "payouts": [],
+    "recordedAt": "2026-10-22T07:59:14.386Z"
   }
 ]
